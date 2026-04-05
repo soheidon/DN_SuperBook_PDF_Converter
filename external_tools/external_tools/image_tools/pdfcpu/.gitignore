@@ -1,3 +1,5 @@
+# それ以外（一時ファイル等）は追跡しない
 *
-!_empty.txt
+!README.md
+!pdfcpu.exe
 !.gitignore
