@@ -1,162 +1,304 @@
-# image_tools — 外部ツールの配置と入手
+# image_tools — 外部ツール配置ガイド（Windows 向け）
 
-アプリ（`SuperBookToolsApp`）は、リポジトリルートから見て **`external_tools\external_tools\image_tools\`** 以下の相対パスで外部実行ファイルを参照します。
+`SuperBookToolsApp` は **`external_tools\external_tools\image_tools\`** 以下の**決まった相対パス**だけを見に行きます。Windows に「入っているだけ」では不足しがちで、**ここに実体を置く**のが最大のポイントです。別マシンで迷いにくいよう、実際に詰まりやすかった点も含めています。
 
 ## 目次
 
-1. [ディレクトリ一覧（何をどこに置くか）](#ディレクトリ一覧何をどこに置くか)
-2. [Git に含めるもの / 含めないもの](#git-に含めるもの--含めないもの)
-3. [自動セットアップ（推奨の流れ）](#自動セットアップ推奨の流れ)
-4. [手動セットアップ（コンポーネント別）](#手動セットアップコンポーネント別)
-5. [Real-ESRGAN・YomiToku（Python）](#real-esrganyomitokupython)
-6. [トラブルシュート](#トラブルシュート)
+1. [処理の流れ（ツール全体像）](#処理の流れツール全体像)
+2. [開発環境・.NET 6・ビルドと日常運用](#開発環境net-6ビルドと日常運用)
+3. [必要なもの（チェックリスト）](#必要なものチェックリスト)
+4. [ディレクトリ一覧](#ディレクトリ一覧)
+5. [自動セットアップ（`setup/image_tools`）](#自動セットアップsetupimage_tools)
+6. [コンポーネント別（手動の要点とハマりどころ）](#コンポーネント別手動の要点とハマりどころ)
+7. [動作確認と成功の目安](#動作確認と成功の目安)
+8. [別マシンで特に注意すること（要約）](#別マシンで特に注意すること要約)
+9. [Git に含める / 含めない](#git-に含める--含めない)
+10. [関連リンク](#関連リンク)
 
 ---
 
-## ディレクトリ一覧（何をどこに置くか）
+## 処理の流れ（ツール全体像）
 
-| パス（`image_tools` 直下） | 必須ファイルの例 | アプリが期待するパス |
-|----------------------------|------------------|----------------------|
-| `ImageMagick-portable-Q16-HDRI-x64\` | `magick.exe`, `mogrify.exe` | 上記フォルダ |
-| （同上） | `gswin64c.exe`, `gsdll64.dll` 等 | ImageMagick と**同じ**フォルダ |
-| `exiftool-13.30_64\` | `exiftool.exe`, `exiftool_files\` | 上記フォルダ |
-| `QPDF\` | `bin\qpdf.exe` | `QPDF\bin\qpdf.exe` |
-| `pdfcpu\` | `pdfcpu.exe` | `pdfcpu\pdfcpu.exe` |
-| `TesseractOCR_Data\` | `eng.traineddata`, `jpn.traineddata` | ディレクトリ直下 |
-| `RealEsrgan\RealEsrgan_Repo\` | venv, `Real-ESRGAN\`, weights | 下記「Real-ESRGAN」参照 |
-| `yomitoku\` | `venv\`, パッケージ | YomiToku 用（OCR 時のみ） |
+自炊 PDF をそのまま OCR するだけではなく、だいたい次の流れです。
 
-参照実装: `SuperBookToolsApp` の `SuperBookExternalTools`（`ImageMagick` / `YomiToku` / `AiTask` のパス）。
+1. PDF を画像化  
+2. **Real-ESRGAN** で鮮明化  
+3. 傾き補正・版面まわりなどの内部処理  
+4. PDF を再構築  
+5. （`/ocr:yes` 時）**YomiToku** で OCR  
+6. 検索可能 PDF / HTML / Markdown / JSON などを出力  
+
+内部では **Tesseract**（ページ処理側）や **ExifTool** / **pdfcpu** / **QPDF** なども使われます。
 
 ---
 
-## Git に含めるもの / 含めないもの
+## 開発環境・.NET 6・ビルドと日常運用
 
-- **コミットしてよい（このリポジトリの方針）**  
-  `pdfcpu\pdfcpu.exe`、`TesseractOCR_Data\*.traineddata`（容量に応じて Git LFS も可）、`pdfcpu\README.md`、`TesseractOCR_Data\README.md`、本ファイル、リポジトリルートの **`setup\image_tools\`**（自動取得スクリプト）。
+### Visual Studio
 
-- **通常はコミットしない（ルート `.gitignore`）**  
-  `ImageMagick-portable-Q16-HDRI-x64\`、`exiftool-13.30_64\`、`QPDF\`、`RealEsrgan\RealEsrgan_Repo\`、`yomitoku\`。  
-  実験用の作業物はルートの **`dev\`** または **`scripts\`**（いずれも無視）に置く。
+- **ワークロード**: 「**.NET によるデスクトップ開発**」を入れる（VS 2022 / 2026 いずれでも可。ソリューションに合わせる）。
+- **注意**: ビルドが通っても、**実行時に .NET 6 ランタイム不足**で止まることがあります。VS のワークロードだけで安心しないでください。
 
----
+### .NET 6 ランタイムの確認
 
-## 自動セットアップ（推奨の流れ）
-
-### 前提
-
-- Windows PowerShell 5.1 以降（`Expand-Archive` が使えること）
-- インターネット接続（ダウンロード）
-- **Real-ESRGAN / YomiToku** を使う場合: **Python 3.10+**、`git` が PATH にあること
-- Ghostscript のサイレントインストール: **管理者権限**が必要なことがあります
-
-### スクリプトの場所
-
-- **`setup\image_tools\Setup-ExternalTools.ps1`** … メイン
-- **`setup\image_tools\ExternalTools-Versions.ps1`** … ダウンロード URL・固定バージョン（スクリプトから dot-source）
-
-リポジトリルートで実行します（例）。
+ターミナルで次を実行します。
 
 ```powershell
-# 1) ポータブル系まとめて（ImageMagick → Ghostscript コピー → QPDF → ExifTool → pdfcpu が無ければ取得）
-.\setup\image_tools\Setup-ExternalTools.ps1 -AllPortable
-
-# 2) 既に Ghostscript を手動インストール済みなら（Program Files\gs から ImageMagick フォルダへコピーのみ）
-.\setup\image_tools\Setup-ExternalTools.ps1 -AllPortable -SkipGhostscriptInstall
-
-# 3) tessdata をリポジトリに載せていない場合
-.\setup\image_tools\Setup-ExternalTools.ps1 -TessData
-
-# 4) Real-ESRGAN（GPU 向け torch の既定 index は ExternalTools-Versions.ps1 参照。CPU の例:）
-.\setup\image_tools\Setup-ExternalTools.ps1 -RealEsrgan -TorchIndexUrl https://download.pytorch.org/whl/cpu
-
-# 5) YomiToku（OCR）
-.\setup\image_tools\Setup-ExternalTools.ps1 -Yomitoku
+dotnet --list-runtimes
 ```
 
-オプションを付けずに実行すると、上記に相当する英語の一行ヘルプが表示されます。
+少なくとも **6.0.x** で、次のような行が出ていると安心しやすいです（名前は環境により多少異なります）。
 
-### `-AllPortable` が行うこと（概要）
+- `Microsoft.AspNetCore.App 6.0.x`
+- `Microsoft.NETCore.App 6.0.x`
+- `Microsoft.WindowsDesktop.App 6.0.x`
 
-1. ImageMagick portable ZIP を `ExternalTools-Versions.ps1` の URL から取得し、フォルダ名 **`ImageMagick-portable-Q16-HDRI-x64`** で展開。
-2. Ghostscript インストーラをダウンロードし **`/S`** でサイレント実行（`-SkipGhostscriptInstall` 時は省略）。その後 `C:\Program Files\gs\...\bin` から `gswin64c.exe` 等 4 ファイルを ImageMagick フォルダへコピー。
-3. QPDF の ZIP を展開し、内側フォルダを **`QPDF`** に配置（`QPDF\bin\qpdf.exe`）。
-4. ExifTool の ZIP を **`exiftool-13.30_64`** に展開。
-5. **`pdfcpu\pdfcpu.exe` が無いときだけ** pdfcpu の ZIP から `pdfcpu.exe` を配置（既に Git 同梱がある場合はスキップ）。
+.NET 6 のサポート期間は公式には終了していますが、「サポート有無」と「このアプリが今動かすために要るか」は別です。足りなければ **.NET 6 ランタイム**を別途入れてください。
 
-一時ファイルは `%TEMP%` 配下に保存されます。
+### ビルド後の exe の場所（例）
+
+```text
+SuperBookToolsApp\bin\Debug\net6.0\SuperBookToolsApp.exe
+SuperBookToolsApp\bin\Release\net6.0\SuperBookToolsApp.exe
+```
+
+### 日常運用で VS を毎回開く必要はない
+
+- **Visual Studio**: 初回ビルド・ソース修正後の再ビルド向け。  
+- **普段**: 上記フォルダの **`SuperBookToolsApp.exe` を直接起動**すればよいです。
+
+```powershell
+Set-Location "...\SuperBookToolsApp\bin\Debug\net6.0"
+.\SuperBookToolsApp.exe
+```
 
 ---
 
-## 手動セットアップ（コンポーネント別）
+## 必要なもの（チェックリスト）
 
-URL やファイル名はバージョンアップで変わることがあります。失敗したら **`ExternalTools-Versions.ps1`** の URL を更新するか、以下の公式から入手してください。
+最低限、次を揃える必要が出ます（不足していると、ログ上で**順番に**別の箇所で落ちることがあります）。
 
-### ImageMagick（portable Q16-HDRI x64）
+| 区分 | 内容 |
+|------|------|
+| 開発 | Visual Studio（デスクトップ開発）、.NET 6 SDK/ランタイム |
+| 共通 | **Git**（Real-ESRGAN クローン等） |
+| `image_tools` 配下 | **ImageMagick**（portable + `magick.exe`）、**Ghostscript**（IM と同じフォルダへ DLL/EXE コピー） |
+| | **QPDF**、**ExifTool**、**pdfcpu** |
+| | **Tesseract** 学習データ（`eng` / `jpn`） |
+| | **Real-ESRGAN**（専用 venv + リポジトリ + weights） |
+| OCR 利用時 | **YomiToku**（専用 venv。Real-ESRGAN とは **venv を分ける**） |
 
-1. [ImageMagick バイナリ一覧](https://imagemagick.org/archive/binaries/) から **portable** かつ **Q16-HDRI** の **64-bit** ZIP を入手。
-2. 展開してできたフォルダ全体を、名前を **`ImageMagick-portable-Q16-HDRI-x64`** にして `image_tools` 直下へ置く（`magick.exe` がその直下にあること）。
+**Python**: 依存の都合で **3.11 で専用 venv を作る**のが安定しやすいです。3.12 / 3.13 では Real-ESRGAN や周辺パッケージで不整合が出やすい、という報告があります（環境によります）。
+
+---
+
+## ディレクトリ一覧
+
+| パス（`image_tools` 直下） | 役割・必須の例 |
+|----------------------------|----------------|
+| `ImageMagick-portable-Q16-HDRI-x64\` | `magick.exe`, `mogrify.exe`（**portable で magick.exe 付き**のものを使う） |
+| （同上） | `gswin64c.exe`, `gsdll64.dll` 等（**IM と同じフォルダ**。Ghostscript 本体は通常 Program Files に入れ、ここへコピー） |
+| `exiftool-13.30_64\` | `exiftool.exe` と **`exiftool_files\`**（後述） |
+| `QPDF\` | `bin\qpdf.exe` |
+| `pdfcpu\` | `pdfcpu.exe` |
+| `TesseractOCR_Data\` | `eng.traineddata`, `jpn.traineddata` |
+| `RealEsrgan\RealEsrgan_Repo\` | `venv\`, `Real-ESRGAN\`, `weights\` など |
+| `yomitoku\` | `venv\` と、CLI が動く配置（後述） |
+
+参照: `SuperBookToolsApp` の `SuperBookExternalTools` / `AiTask` / `PdfYomitokuLib` のパス。
+
+---
+
+## 自動セットアップ（`setup/image_tools`）
+
+リポジトリルートから PowerShell で実行します。
+
+| コマンド | 内容 |
+|----------|------|
+| `.\setup\image_tools\Setup-ExternalTools.ps1 -AllPortable` | ImageMagick ZIP、Ghostscript（サイレント `/S` のあと bin からコピー）、QPDF、ExifTool、pdfcpu（無い場合のみ） |
+| 同じく `-SkipGhostscriptInstall` | 既に Ghostscript を入れ済みのときコピーのみ |
+| `.\setup\image_tools\Setup-ExternalTools.ps1 -TessData` | `eng` / `jpn` の tessdata を `TesseractOCR_Data` に取得 |
+| `.\setup\image_tools\Setup-ExternalTools.ps1 -RealEsrgan` | Real-ESRGAN 用 venv・クローン・weights・pip（`-TorchIndexUrl` で CPU/CUDA 切替） |
+| `.\setup\image_tools\Setup-ExternalTools.ps1 -Yomitoku` | YomiToku 用 venv と pip（既定は `ExternalTools-Versions.ps1` のパッケージ指定） |
+
+- ダウンロード URL のピン留めは **`setup\image_tools\ExternalTools-Versions.ps1`**。404 になったらここを更新してください。  
+- **PyTorch の CUDA 版**はマシンの CUDA ドライバに合わせ、[PyTorch 公式](https://pytorch.org/get-started/locally/)の `pip` 用 `--index-url` を指定するのが確実です（下記「手動」参照）。  
+- オプション無しで実行すると、英語の一行例が表示されます。
+
+---
+
+## コンポーネント別（手動の要点とハマりどころ）
+
+### ImageMagick
+
+- **用途**: PDF の画像化・再 PDF 化、deskew など。  
+- **注意**: **portable 版でも `magick.exe` が付いている配布**を使うこと。ImageMagick 6 系の一部 portable には `magick.exe` が無いことがあります。  
+- **ログ**: `delegates.xml` や `colors.xml` の**警告だけ**なら、環境によっては**処理は完走**します。すぐ致命的と決めつけない。
 
 ### Ghostscript
 
-1. [Ghostscript ダウンロード](https://www.ghostscript.com/releases/gsdnld.html) から Windows x64 用をインストール。
-2. インストール先の `bin` から少なくとも次を **ImageMagick フォルダと同じ場所**へコピー:  
-   `gsdll64.dll`, `gsdll64.lib`, `gswin64.exe`, `gswin64c.exe`
-
-### ExifTool
-
-- [ExifTool](https://exiftool.org/) の Windows 版 ZIP を展開し、**`exiftool-13.30_64`** というフォルダ名で `image_tools` 直下に配置（`exiftool.exe` と `exiftool_files` がその中にあること）。
+- **用途**: ImageMagick 経由で PDF を扱うために必要。  
+- **注意**: ImageMagick だけ置いても、Ghostscript が無いと **PDF 展開で止まる**ことがあります。  
+- **配置**: インストーラで入れた `gs*.dll` / `gswin64c.exe` 等を **ImageMagick のフォルダと同じ場所**へコピー（本リポジトリのアプリはそのパスを参照します）。
 
 ### QPDF
 
-- [qpdf releases](https://github.com/qpdf/qpdf/releases) から **msvc64** の ZIP を入手し、展開後のトップフォルダを **`QPDF`** にリネームして `image_tools` 直下へ（`QPDF\bin\qpdf.exe`）。
+- [qpdf releases](https://github.com/qpdf/qpdf/releases) の Windows **msvc64** ZIP を展開し、トップフォルダを **`QPDF`** にして `image_tools` 直下へ（`QPDF\bin\qpdf.exe`）。
+
+### ExifTool
+
+- **用途**: PDF メタデータの整理。  
+- **公式の注意**: Windows では `exiftool(-k).exe` を **`exiftool.exe` にリネーム**する運用が案内されることがあります。**`exiftool_files` フォルダごと**同じ階層に置く必要があります。  
+- **ハマりどころ（実例）**  
+  - `exiftool.exe` が無い  
+  - `exiftool.exe` はあるが **`exiftool_files` が無い**、またはその中の **`perl5*.dll` が無い**  
+- **正しい形の例**
+
+```text
+...\image_tools\exiftool-13.30_64\exiftool.exe
+...\image_tools\exiftool-13.30_64\exiftool_files\   （中に perl5*.dll 等）
+```
+
+確認例:
+
+```powershell
+Test-Path "...\exiftool-13.30_64\exiftool.exe"
+Test-Path "...\exiftool-13.30_64\exiftool_files"
+Get-ChildItem "...\exiftool-13.30_64\exiftool_files" -Filter "perl5*.dll"
+```
 
 ### pdfcpu
 
-- [pdfcpu releases](https://github.com/pdfcpu/pdfcpu/releases) から Windows x64 の `pdfcpu.exe` を **`pdfcpu\`** に配置。リポジトリに同梱する運用でもよい。
+- **用途**: OCR 後の PDF に **viewer preferences** や **page layout**（例: 見開き・綴じ方向）を設定する処理で使われます。  
+- **ハマりどころ**: **かなり最後の段階**まで進んでから `pdfcpu.exe` 不足で止まることがある。**初手で置いておく**のがおすすめです。  
+- **配置**: `pdfcpu\pdfcpu.exe`  
+- 確認: `& "...\pdfcpu\pdfcpu.exe" version`
 
-### Tesseract（tessdata）
+### Tesseract（学習データ）
 
-- [tessdata_best](https://github.com/tesseract-ocr/tessdata_best) から **`eng.traineddata`** と **`jpn.traineddata`** を **`TesseractOCR_Data\`** に配置。  
-  または `Setup-ExternalTools.ps1 -TessData`。
+- **用途**: 内部のページ処理など（**YomiToku より前**の段階でも使われます）。  
+- **必要ファイル**: `jpn.traineddata` と `eng.traineddata`  
+- **配置**: `TesseractOCR_Data\` 直下  
+- **ハマりどころ**: この 2 つが無いと **YomiToku 以前に Tesseract 初期化で落ちる**ことがあります。
 
----
-
-## Real-ESRGAN・YomiToku（Python）
+```powershell
+Test-Path "...\TesseractOCR_Data\jpn.traineddata"
+Test-Path "...\TesseractOCR_Data\eng.traineddata"
+```
 
 ### Real-ESRGAN
 
-自動スクリプト **`-RealEsrgan`** は概ね次を行います。
+- **用途**: 画像鮮明化。  
+- **実際の呼び出し例**（ログに近い形）:
 
-1. `RealEsrgan\RealEsrgan_Repo\` に venv を作成。
-2. `pip install torch torchvision torchaudio`（`-TorchIndexUrl` で CUDA / CPU を切り替え）。
-3. `git clone` [Real-ESRGAN](https://github.com/xinntao/Real-ESRGAN) を同フォルダ内に取得し、**固定コミット**にチェックアウト（バージョンは `ExternalTools-Versions.ps1`）。
-4. `weights\RealESRGAN_x4plus.pth` をダウンロード。
-5. `pip install -r Real-ESRGAN\requirements.txt`
-6. `basicsr` の `degradations.py` 内の `rgb_to_grayscale` の import を、環境に応じて `torchvision.transforms.functional` に置換（スクリプトが自動試行）。
+```text
+python Real-ESRGAN/inference_realesrgan.py -n RealESRGAN_x4plus -i dn_batch_in -o dn_batch_out --tile 512 --tile_pad 16 --outscale 2.00
+```
 
-手動で行う場合も、上記と同じディレクトリ構成にすればアプリの `AiTest_RealEsrgan_BaseDir` と整合します。
+- **Python**: **3.11 + 専用 venv** を推奨。  
+- **PyTorch**: **CPU 版だけだと非常に遅い**。GPU がある場合は **CUDA 対応の torch** を入れる（ドライバと対応する `--index-url` は [PyTorch 公式](https://pytorch.org/get-started/locally/) を参照）。  
+- **例**（環境に合わせてバージョン・ index は読み替え）:
+
+```powershell
+pip install torch==2.9.1 torchvision==0.24.1 torchaudio==2.9.1 --index-url https://download.pytorch.org/whl/cu126
+```
+
+確認:
+
+```powershell
+python -c "import torch; print(torch.__version__); print(torch.cuda.is_available()); print(torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'NO CUDA')"
+```
+
+- 手動で揃える場合のディレクトリは **`RealEsrgan\RealEsrgan_Repo\`**（venv・`Real-ESRGAN` クローン・`weights\RealESRGAN_x4plus.pth` 等）。自動スクリプトは `basicsr` の `degradations.py` の import 修正も試みます。
 
 ### YomiToku（OCR）
 
-- **`-Yomitoku`**: `yomitoku\venv` を作成し、PyTorch の後に `yomitoku==0.10.3`（`ExternalTools-Versions.ps1`）を pip インストール。
-- **ライセンス・商用利用**は [YomiToku README](https://github.com/kotaro-kinoshita/yomitoku) を必ず確認してください。
+- **用途**: OCR 本体。PDF / HTML / Markdown / JSON 等の出力。  
+- **ライセンス**: [YomiToku README](https://github.com/kotaro-kinoshita/yomitoku) を必ず確認（商用・非商用の区分など）。  
+- **作業ディレクトリ**: アプリは **`...\image_tools\yomitoku`** をカレントにして **`yomitoku` コマンド**を実行します。通常はこのフォルダ直下の **`venv\Scripts`** に CLI が入っている必要があります。
+
+**方法 A（リポジトリ付属スクリプト）**  
+`Setup-ExternalTools.ps1 -Yomitoku` … `pip install` でパッケージを入れる方式（`ExternalTools-Versions.ps1` の版指定）。
+
+**方法 B（手元でよく使われる editable インストールの例）**  
+`yomitoku` フォルダ直下に venv を作り、リポジトリを `repo` などの名前で clone してから:
+
+```powershell
+Set-Location "...\image_tools\yomitoku"
+git clone https://github.com/kotaro-kinoshita/yomitoku.git repo
+# Python 3.11 推奨
+& "...\Python311\python.exe" -m venv venv
+.\venv\Scripts\Activate.ps1
+Set-Location .\repo
+python -m pip install --editable .
+Set-Location ..
+yomitoku --help
+```
+
+**GPU 化**: YomiToku 用 venv でも、**CPU 版 torch のまま**だと `CUDA is not available. Use CPU instead.` のような表示で遅くなります。**Real-ESRGAN 用 venvとは別**に、YomiToku 側 venv で CUDA 版 torch に入れ替えます（例は Real-ESRGAN と同様、公式の index-url に合わせる）。
+
+```powershell
+pip uninstall -y torch torchvision torchaudio
+pip install torch==... torchvision==... torchaudio==... --index-url https://download.pytorch.org/whl/cu126
+```
 
 ---
 
-## トラブルシュート
+## 動作確認と成功の目安
 
-| 現象 | 対処 |
-|------|------|
-| ImageMagick の ZIP URL が 404 | `ExternalTools-Versions.ps1` の `ImageMagickZipUrl` を [公式一覧](https://imagemagick.org/archive/binaries/) の現行ファイルに更新。 |
-| Ghostscript がコピーできない | 管理者でインストーラを実行するか、`Program Files\gs` の実際のバージョンフォルダを確認。 |
-| Real-ESRGAN の pip が失敗 | Python バージョン、CUDA 有無に合わせて `-TorchIndexUrl` を変更（CPU なら `https://download.pytorch.org/whl/cpu` 等）。 |
-| PowerShell で日本語スクリプトが壊れる | 本リポジトリの `Setup-ExternalTools.ps1` のヘルプは ASCII 中心。詳細は本 README（UTF-8）を参照。 |
+### ConvertPdf の例
+
+アプリ起動後、プロンプトで:
+
+```text
+ConvertPdf D:\OCR_IN /dst:D:\OCR_OUT /ocr:yes
+```
+
+OCR なしなら `/ocr:no`。
+
+**注意**: `srcDir` と `dstDir` は**同一にできません**。
+
+### テストの進め方
+
+いきなり長い本 PDF で試さず、次の順が切り分けしやすいです。
+
+1. **1 ページの PDF**  
+2. 数ページの PDF  
+3. 本番の長い PDF  
+
+### ログで「一通り通った」目安（実例）
+
+次のような行が出れば、少なくとも基本セットアップはできていると考えてよい例です。
+
+- `Build '...\抽出したページ_1.pdf' OK.` のような **OK**  
+- `Performing Japanese OCR completed.`（`/ocr:yes` 時）  
+- `<< ConvertPdf Result >> numTotal = 1, numSkip = 0, numOk = 1, numError = 0`
 
 ---
 
-## 関連ドキュメント
+## 別マシンで特に注意すること（要約）
 
-- リポジトリルート **[README.md](../../../README.md)** … ビルド・実行・本 README への導線
-- **[setup/README.md](../../../setup/README.md)** … `setup` フォルダの役割、`Run-ConvertPdf.ps1`
-- 個人用・実験用スクリプト … ルートの **`dev/`**（推奨）または **`scripts/`**（レガシー、いずれも Git 無視）
+1. **.NET 6**: VS を入れただけでは足りず、**実行時ランタイム**が別途必要なことがある。`dotnet --list-runtimes` で確認。  
+2. **Python 3.11 推奨**: Real-ESRGAN / YomiToku まわりは 3.12・3.13 より安定しやすい。  
+3. **venv はツールごとに分ける**: Real-ESRGAN 用と YomiToku 用は別。  
+4. **torch**: 最初 CPU 版だけ入っていると遅い。**CUDA 版に入れ替え**て GPU を使う。  
+5. **ExifTool**: **exe だけでは足りない**。`exiftool_files`（とその中身）が必須。  
+6. **pdfcpu**: **後半で必要**になるので、早めに `pdfcpu\pdfcpu.exe` を置く。  
+7. **所定パス**: ツールは **必ず `image_tools` 以下の期待パス**に置く（OS に入っているだけでは不十分なことが多い）。  
+8. **ImageMagick の警告**: delegates / colors の警告だけなら、まずは最後まで様子を見る。
+
+---
+
+## Git に含める / 含めない
+
+- **コミットしてよい例**: `pdfcpu.exe`、`TesseractOCR_Data\*.traineddata`（大きければ Git LFS）、`setup\image_tools\`、本 README。  
+- **通常コミットしない（ルート `.gitignore`）**: `ImageMagick-portable-*`、`exiftool-*`、`QPDF`、`RealEsrgan\RealEsrgan_Repo`、`yomitoku`。  
+- 実験用スクリプトはリポジトリルートの **`dev\`**（推奨）など、Git 対象外の場所へ。
+
+---
+
+## 関連リンク
+
+- リポジトリルート **[README.md](../../../README.md)** … 全体のビルド・実行  
+- **[setup/README.md](../../../setup/README.md)** … `setup` フォルダの役割、`Run-ConvertPdf.ps1`  
+- 上流の公開リポジトリ例: [dnobori/DN_SuperBook_PDF_Converter](https://github.com/dnobori/DN_SuperBook_PDF_Converter)（Fork 利用時は `origin` / `upstream` を適宜）
