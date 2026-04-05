@@ -105,16 +105,19 @@ public class ImageMagickOptions
     public string ExifToolPath = "";
     public string QPdfPath = "";
     public string PdfCpuPath = "";
+    /// <summary>Ghostscript コンソール版（例: gswin64c.exe）。OCR 後 PDF 圧縮などに使用。</summary>
+    public string Gswin64cPath = "";
     public Encoding Encoding = Str.Utf8Encoding;
     public int MaxStdOutBufferSize = CoresConfig.DefaultFfMpegExecSettings.FfMpegDefaultMaxStdOutBufferSize;
 
-    public ImageMagickOptions(string magickExePath, string mogrifyPath, string exifToolPath, string qpdfPath, string pdfCpuPath)
+    public ImageMagickOptions(string magickExePath, string mogrifyPath, string exifToolPath, string qpdfPath, string pdfCpuPath, string gswin64cPath)
     {
         this.MagickExePath = magickExePath;
         this.MogrifyPath = mogrifyPath;
         this.ExifToolPath = exifToolPath;
         this.QPdfPath = qpdfPath;
         this.PdfCpuPath = pdfCpuPath;
+        this.Gswin64cPath = gswin64cPath;
     }
 }
 
@@ -481,6 +484,53 @@ public class ImageMagickUtil
             inputEncoding: Options.Encoding, outputEncoding: Options.Encoding, errorEncoding: Options.Encoding);
 
         return ret;
+    }
+
+    public async Task<EasyExecResult> RunGhostscriptAsync(string arguments, CancellationToken cancel = default)
+    {
+        if (Options.Gswin64cPath._IsEmpty())
+        {
+            throw new CoresLibException("Gswin64cPath is not set.");
+        }
+
+        Con.WriteLine($"[*Run*] {Options.Gswin64cPath} {arguments}");
+
+        EasyExecResult ret = await EasyExec.ExecAsync(Options.Gswin64cPath, arguments, PP.GetDirectoryName(Options.Gswin64cPath),
+            flags: ExecFlags.Default | ExecFlags.EasyPrintRealtimeStdOut | ExecFlags.EasyPrintRealtimeStdErr,
+            timeout: Timeout.Infinite, cancel: cancel, throwOnErrorExitCode: true,
+            easyOutputMaxSize: Options.MaxStdOutBufferSize,
+            inputEncoding: Options.Encoding, outputEncoding: Options.Encoding, errorEncoding: Options.Encoding);
+
+        return ret;
+    }
+
+    /// <summary>
+    /// Ghostscript pdfwrite で画像を目標 DPI 相当に再サンプルし PDF を再生成する（テキストレイヤーは pdfwrite の解釈に依存）。
+    /// </summary>
+    public async Task CompressPdfWithGhostscriptAsync(string srcPdfPath, string dstPdfPath, int targetDpi, CancellationToken cancel = default)
+    {
+        if (Options.Gswin64cPath._IsEmpty())
+        {
+            throw new CoresLibException("Gswin64cPath is not set.");
+        }
+
+        if (targetDpi < 1)
+        {
+            throw new ArgumentOutOfRangeException(nameof(targetDpi));
+        }
+
+        await Lfs.DeleteFileIfExistsAsync(dstPdfPath, cancel: cancel);
+        await Lfs.EnsureCreateDirectoryForFileAsync(dstPdfPath, cancel: cancel);
+
+        string dpiStr = targetDpi.ToString(CultureInfo.InvariantCulture);
+
+        string args =
+            $"-dNOPAUSE -dBATCH -dSAFER -sDEVICE=pdfwrite -dCompatibilityLevel=1.4 " +
+            $"-dColorImageResolution={dpiStr} -dGrayImageResolution={dpiStr} -dMonoImageResolution={dpiStr} " +
+            $"-dDetectDuplicateImages=true -dCompressFonts=true " +
+            $"-sOutputFile={dstPdfPath._EnsureQuotation()} {srcPdfPath._EnsureQuotation()}";
+
+        await RunGhostscriptAsync(args, cancel: cancel);
     }
 
 

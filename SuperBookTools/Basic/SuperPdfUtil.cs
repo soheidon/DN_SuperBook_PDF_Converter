@@ -80,6 +80,10 @@ public class PdfYomitokuOptions
     public bool OutputFigureLetters = true;
     public string Encoding = "utf-8-sig";
     public int TimeoutSecs = 5 * 3600;
+    /// <summary>OCR 埋め込み PDF 生成後、Ghostscript で画像を再サンプルして軽量化する（既定: オフ。CLI から後で有効化予定）。</summary>
+    public bool DownscaleOcrPdfAfterRecognition = false;
+    /// <summary><see cref="DownscaleOcrPdfAfterRecognition"/> 有効時の目標 DPI（画像解像度）。</summary>
+    public int OcrPdfTargetDpi = 200;
 }
 
 public class PdfYomitokuMiniPageInfo
@@ -136,6 +140,11 @@ public class PdfYomitokuLib
 
                 o = baseOptions._CloneDeep();
                 o.Format = PdfYomitokuFormats.Pdf;
+
+                // 検証用: OCR後PDF圧縮を一時的に有効化
+                o.DownscaleOcrPdfAfterRecognition = true;
+                o.OcrPdfTargetDpi = 200;
+
                 optList.Add(o);
 
                 o = baseOptions._CloneDeep();
@@ -303,14 +312,35 @@ public class PdfYomitokuLib
 
             await SuperBookExternalTools.ImageMagick.ApplyDocInfoToPdfFileAsync(ocrDstGeneratedPdfPath, srcPdfMetaData, cancel: cancel);
 
-            // 結果 PDF をユーザーが希望するパスにコピー
-            await Lfs.EnsureCreateDirectoryForFileAsync(dstFilePath, cancel: cancel);
+            string sourcePathForFinalCopy = ocrDstGeneratedPdfPath;
+            string? gsCompressedTmpPath = null;
 
-            await Lfs.CopyFileAsync(ocrDstGeneratedPdfPath, dstFilePath);
+            if (options.DownscaleOcrPdfAfterRecognition && options.OcrPdfTargetDpi >= 1)
+            {
+                gsCompressedTmpPath = await Lfs.GenerateUniqueTempFilePathAsync("gs_ocr_pdf", ".pdf", cancel: cancel);
+                await SuperBookExternalTools.ImageMagick.CompressPdfWithGhostscriptAsync(
+                    ocrDstGeneratedPdfPath, gsCompressedTmpPath, options.OcrPdfTargetDpi, cancel: cancel);
+                sourcePathForFinalCopy = gsCompressedTmpPath;
+            }
 
-            var fileMeta = new FileMetadata(destFileTimeStamp);
+            try
+            {
+                // 結果 PDF をユーザーが希望するパスにコピー
+                await Lfs.EnsureCreateDirectoryForFileAsync(dstFilePath, cancel: cancel);
 
-            await Lfs.SetFileMetadataAsync(dstFilePath, destFileTimeStampMetaData, cancel: cancel);
+                await Lfs.CopyFileAsync(sourcePathForFinalCopy, dstFilePath);
+
+                var fileMeta = new FileMetadata(destFileTimeStamp);
+
+                await Lfs.SetFileMetadataAsync(dstFilePath, destFileTimeStampMetaData, cancel: cancel);
+            }
+            finally
+            {
+                if (gsCompressedTmpPath._IsFilled())
+                {
+                    await Lfs.DeleteFileIfExistsAsync(gsCompressedTmpPath, cancel: cancel);
+                }
+            }
         }
         else
         {
