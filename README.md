@@ -40,7 +40,7 @@ git clone --recursive <このリポジトリの URL>
 
 **実験用スクリプト**（Ghostscript の比較実験など）は、混同を避けるためリポジトリルートの **`dev/`** に置いてください（`.gitignore` 済み）。旧来の **`scripts/`** も同様に無視されます。
 
-**セットアップ用（コミット対象）**: **`setup/README.md`** を参照（`Run-ConvertPdf.ps1` など）。
+**セットアップ用（コミット対象）**: **`setup/README.md`** を参照（`Run-ConvertPdf.ps1` / `Run-RecompressPdf.ps1` など）。
 
 ## ビルド
 
@@ -52,13 +52,15 @@ dotnet build DN_SuperBook_PDF_Converter_VS2026.sln -c Release
 
 ## 実行
 
-- **対話**: `SuperBookToolsApp.exe` を起動し、`ConvertPdf` や `ConvertPdf --help`。
+- **対話**: `SuperBookToolsApp.exe` を起動し、`ConvertPdf` / `RecompressPdf` や `--help`。
 - **ワンショット**: `SuperBookToolsApp.exe /cmd "ConvertPdf D:\in /dst:D:\out /ocr:yes"`
-- **ラッパー**: `.\setup\Run-ConvertPdf.ps1 "D:\in" /dst:"D:\out" /ocr:yes`
+- **ラッパー**: `.\setup\Run-ConvertPdf.ps1 "D:\in" /dst:"D:\out" /ocr:yes` ／ `.\setup\Run-RecompressPdf.ps1 "D:\in" /dst:"D:\out" ...`
 
 `srcDir` と `dstDir` は**同一にできません**。
 
-### ConvertPdf の主なオプション
+### ConvertPdf（フルパイプライン）
+
+Real-ESRGAN・版面処理・（オプション）OCR まで一括で行います。
 
 | オプション | 説明 |
 |------------|------|
@@ -68,7 +70,76 @@ dotnet build DN_SuperBook_PDF_Converter_VS2026.sln -c Release
 | `/ocrPdfGrayscale:yes` | 上記有効時、グレースケール化 |
 | `/ocrPdfJpegQuality:N` | 上記有効時、JPEG 品質 0=既定、1〜100 |
 
-補足は `ConvertPdf --help` と実行ログを参照してください。
+### RecompressPdf（Ghostscript 再圧縮のみ）
+
+**既存の PDF** に対して、ImageMagick 経由の Ghostscript（`pdfwrite`）だけをかけます。**Real-ESRGAN・傾き補正・OCR は行いません。** 入力フォルダ以下の `.pdf` を再帰列挙し、出力先に**同じ相対パス**で書き出します。
+
+| オプション | 説明 |
+|------------|------|
+| `/ocrPdfTargetDpi:N` | 目標 DPI（1〜1200、**省略時 200**）。実効解像度と閾値の関係で、下げてもピクセル寸法が変わらずストリーム再圧縮に留まることがある。 |
+| `/ocrPdfGrayscale:yes` | 8bit グレースケール化 |
+| `/ocrPdfJpegQuality:N` | 0=Ghostscript 既定、1〜100=JPEG（DCT）品質の目安（大きいほど高画質・ファイルは大きくなりやすい） |
+
+OCR 済み PDF だけを軽くしたい場合は、`ConvertPdf` の出力フォルダ内の **`Post_OCR_Dir\pdf_ocred\`** など、対象 PDF が並んでいるフォルダを `srcDir` に指定して `RecompressPdf` を実行してください。
+
+---
+
+## PDF 再圧縮の目安（DPI・グレー・JPEG）
+
+実際の効き方は元 PDF の画像ラベル（effective ppi）やフィルタに依存します。次の表は**試すときの出発点**です。
+
+### 圧縮度合いの目安
+
+| 圧縮度合い | ねらい | 推奨設定（`RecompressPdf` の例） | 備考 |
+|------------|--------|-----------------------------------|------|
+| 弱圧縮 | 見た目をあまり変えずに軽くする | 既定 DPI（省略）＋グレーなし。必要なら `/ocrPdfJpegQuality:75` など | 主に JPEG 再エンコード。比較的安全 |
+| 中圧縮 | 読みやすさを保ちつつしっかり軽くする | `/ocrPdfGrayscale:yes /ocrPdfTargetDpi:72` | 現時点の本命候補として試しやすい |
+| 強圧縮 | かなり軽くしたい | `/ocrPdfGrayscale:yes /ocrPdfTargetDpi:50` | 文字の見やすさは要確認。実測で調整 |
+
+### コマンド例（入力 `D:\OCR\TEST\OCR-IN` の場合）
+
+**弱圧縮**（既定 DPI、カラー維持）
+
+```powershell
+.\setup\Run-RecompressPdf.ps1 "D:\OCR\TEST\OCR-IN" /dst:"D:\OCR\TEST\OUT_weak"
+```
+
+**中圧縮**
+
+```powershell
+.\setup\Run-RecompressPdf.ps1 "D:\OCR\TEST\OCR-IN" /dst:"D:\OCR\TEST\OUT_medium" /ocrPdfGrayscale:yes /ocrPdfTargetDpi:72
+```
+
+**強圧縮**
+
+```powershell
+.\setup\Run-RecompressPdf.ps1 "D:\OCR\TEST\OCR-IN" /dst:"D:\OCR\TEST\OUT_strong" /ocrPdfGrayscale:yes /ocrPdfTargetDpi:50
+```
+
+`ConvertPdf` で OCR 後に同じ強さをかける場合は、従来どおり `/recompressOcrPdf:yes` と組み合わせます（例: 中圧縮）。
+
+```powershell
+.\setup\Run-ConvertPdf.ps1 "D:\OCR\TEST\OCR-IN" /dst:"D:\OCR\TEST\OUT_medium" /ocr:yes /recompressOcrPdf:yes /ocrPdfGrayscale:yes /ocrPdfTargetDpi:72
+```
+
+### 比較の見方
+
+- **ファイルサイズ**
+- **見た目の読みやすさ**
+- **OCR テキスト層が生きているか**（OCR 済み PDF を触る場合）
+
+`ConvertPdf` + OCR の場合は、例として次のようなパスを比較します。
+
+- 再生成 PDF: `D:\OCR\TEST\OUT_xxx\（元と同じファイル名）.pdf`
+- OCR 後 PDF: `D:\OCR\TEST\OUT_xxx\Post_OCR_Dir\pdf_ocred\（ファイル名） [ PDF_OCRED ].pdf`
+
+`RecompressPdf` だけの場合は、`dst` 側に出力された PDF 同士を比較します。
+
+詳細な挙動の注意は `MiscUtil.CompressPdfWithGhostscriptAsync` の XML コメント（effective ppi・ダウンサンプル条件）も参照してください。
+
+---
+
+補足は `ConvertPdf --help` / `RecompressPdf --help` と実行ログを参照してください。
 
 ## ライセンス・免責
 

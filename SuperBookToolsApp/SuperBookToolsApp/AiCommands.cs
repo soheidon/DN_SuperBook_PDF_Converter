@@ -60,7 +60,7 @@ namespace SuperBookTools.App
         [ConsoleCommand(
             "ConvertPdf command",
             "ConvertPdf [srcDir] [/dst:dstDir] [/ocr:yes|no] [/recompressOcrPdf:yes|no] [/downscaleOcrPdf:yes|no] [/ocrPdfTargetDpi:1-1200] [/ocrPdfGrayscale:yes|no] [/ocrPdfJpegQuality:0-100]",
-            "OCR後Ghostscript: /recompressOcrPdf（正式）/downscaleOcrPdf（互換）。/ocrPdfTargetDpi /ocrPdfGrayscale /ocrPdfJpegQuality（0=既定、1-100=JPEG品質%%）は recompress 有効時のみ。README の ConvertPdf を参照。")]
+            "OCR後Ghostscript: /recompressOcrPdf（正式）/downscaleOcrPdf（互換）。/ocrPdfTargetDpi /ocrPdfGrayscale /ocrPdfJpegQuality（0=既定、1-100=JPEG品質%%）は recompress 有効時のみ。再圧縮だけなら RecompressPdf。README の「PDF 再圧縮」参照。")]
         public static async Task<int> ConvertPdf(ConsoleService c, string cmdName, string str)
         {
             ConsoleParam[] args =
@@ -171,7 +171,7 @@ namespace SuperBookTools.App
                 {
                     Con.WriteLine($"Ghostscript after OCR PDF: enabled. TargetDpi={ocrPdfTargetDpi}, Grayscale={ocrPdfGrayscale}, JpegQuality%={(ocrPdfJpegQuality == 0 ? "(default)" : ocrPdfJpegQuality.ToString())}.");
                     Con.WriteLine("  (/recompressOcrPdf:yes … 任意: /ocrPdfTargetDpi:N /ocrPdfGrayscale:yes /ocrPdfJpegQuality:0-100)");
-                    Con.WriteLine("  注意: README の ConvertPdf 節（OCR 後 Ghostscript・DPI 等）を参照。");
+                    Con.WriteLine("  注意: README の「PDF 再圧縮」または ConvertPdf 節を参照。再圧縮のみは RecompressPdf。");
                 }
 
                 await SuperBookExternalTools.YomiToku.PerformOcrDirAsync(dstDir, PP.Combine(dstDir, SuperBookExternalTools.Post_OCR_Dir), SuperBookExternalTools.Post_OCR_Dir, ghostscriptRecompressOcrPdf, ocrPdfTargetDpi, ocrPdfGrayscale, ocrPdfJpegQuality);
@@ -189,6 +189,114 @@ namespace SuperBookTools.App
             }
 
             $"\n\n<< ConvertPdf Result >>\nnumTotal = {numTotal}, numSkip = {numSkip}, numOk = {numOk}, numError = {numError}\n\n"._Error();
+
+            return 0;
+        }
+
+        [ConsoleCommand(
+            "RecompressPdf command",
+            "RecompressPdf [srcDir] [/dst:dstDir] [/ocrPdfTargetDpi:1-1200] [/ocrPdfGrayscale:yes|no] [/ocrPdfJpegQuality:0-100]",
+            "Ghostscript のみで PDF を再圧縮（Real-ESRGAN・版面処理・OCR は行わない）。既存 PDF のみ対象。詳細は README の「PDF 再圧縮（RecompressPdf）」。")]
+        public static async Task<int> RecompressPdf(ConsoleService c, string cmdName, string str)
+        {
+            ConsoleParam[] args =
+            {
+                new ConsoleParam("[srcDir]", ConsoleService.Prompt, "Source directory path: ", ConsoleService.EvalNotEmpty, null),
+                new ConsoleParam("dst", ConsoleService.Prompt, "Destination directory path: ", ConsoleService.EvalNotEmpty, null),
+                new ConsoleParam("ocrPdfTargetDpi", null, null, null, null),
+                new ConsoleParam("ocrPdfGrayscale", null, null, null, null),
+                new ConsoleParam("ocrPdfJpegQuality", null, null, null, null),
+            };
+            ConsoleParamValueList vl = c.ParseCommandList(cmdName, str, args);
+
+            string srcDir = vl.DefaultParam.StrValue;
+            string dstDir = vl["dst"].StrValue;
+
+            srcDir = PP.RemoveLastSeparatorChar(await Lfs.NormalizePathAsync(srcDir, normalizeRelativePathIfSupported: true));
+            dstDir = PP.RemoveLastSeparatorChar(await Lfs.NormalizePathAsync(dstDir, normalizeRelativePathIfSupported: true));
+
+            $"- Source Dir: \"{srcDir}\""._Print();
+            $"- Destination Dir: \"{dstDir}\""._Print();
+
+            if (srcDir._IsSamei(dstDir))
+            {
+                throw new CoresException("srcDir must not be same to dstDir.");
+            }
+
+            int targetDpi = vl.GetInt("ocrPdfTargetDpi");
+            if (targetDpi < 1)
+            {
+                targetDpi = 200;
+            }
+            if (targetDpi > 1200)
+            {
+                throw new CoresException("ocrPdfTargetDpi must be between 1 and 1200.");
+            }
+            bool grayscale = vl["ocrPdfGrayscale"].BoolValue;
+            int jpegQuality = vl.GetInt("ocrPdfJpegQuality");
+            if (jpegQuality < 0 || jpegQuality > 100)
+            {
+                throw new CoresException("ocrPdfJpegQuality must be 0 (Ghostscript default) or 1-100 (JPEG quality percent, higher = better quality / larger file).");
+            }
+
+            Con.WriteLine($"Ghostscript recompress only: TargetDpi={targetDpi}, Grayscale={grayscale}, JpegQuality%={(jpegQuality == 0 ? "(default)" : jpegQuality.ToString())}.");
+
+            await Lfs.CreateDirectoryAsync(dstDir);
+
+            var srcFiles = (await Lfs.EnumDirectoryAsync(srcDir, true)).Where(x => x.IsFile && x.Name.StartsWith("_") == false && x.Name._IsExtensionMatch(".pdf")).OrderBy(x => x.FullPath, StrCmpi).ToList();
+
+            int numTotal = srcFiles.Count;
+            int numOk = 0;
+            int numError = 0;
+            List<string> errorFilesList = new();
+
+            $"Total {numTotal} PDF files"._Error();
+
+            int currentNumber = 0;
+            foreach (var src in srcFiles)
+            {
+                currentNumber++;
+                string relativePath = PP.GetRelativeFileName(src.FullPath, srcDir);
+                string dstPath = PP.Combine(dstDir, relativePath);
+
+                $"<< {currentNumber} / {numTotal} >> '{src.FullPath}'"._Error();
+
+                try
+                {
+                    await Lfs.EnsureCreateDirectoryForFileAsync(dstPath);
+                    string tmpOut = await Lfs.GenerateUniqueTempFilePathAsync("recompress_pdf", ".pdf");
+                    try
+                    {
+                        await SuperBookExternalTools.ImageMagick.CompressPdfWithGhostscriptAsync(
+                            src.FullPath, tmpOut, targetDpi, grayscale, jpegQuality);
+                        await Lfs.CopyFileAsync(tmpOut, dstPath);
+                    }
+                    finally
+                    {
+                        await Lfs.DeleteFileIfExistsAsync(tmpOut);
+                    }
+                    numOk++;
+                    $"<< {currentNumber} / {numTotal} >> OK"._Error();
+                }
+                catch (Exception ex)
+                {
+                    Con.WriteLine($"<< {currentNumber} / {numTotal} >> Error: {src.FullPath} -> {dstPath}");
+                    ex._Error();
+                    errorFilesList.Add(src.FullPath);
+                    numError++;
+                }
+            }
+
+            if (errorFilesList.Count >= 1)
+            {
+                $"--- Error files ---"._Error();
+                foreach (var errFile in errorFilesList)
+                {
+                    $"- {errFile}"._Error();
+                }
+            }
+
+            $"\n\n<< RecompressPdf Result >>\nnumTotal = {numTotal}, numOk = {numOk}, numError = {numError}\n\n"._Error();
 
             return 0;
         }
