@@ -4,4 +4,4 @@
 - `jpn.traineddata`
 
 **推奨**: 上記 2 ファイルをこのディレクトリにコミットする。  
-**代替**: 上記 URL から手動でダウンロードして配置する。
+**代替**: 上記 URL から手動でダウンロードして配置する。または `setup\image_tools\Setup-ExternalTools.ps1 -TessData`。

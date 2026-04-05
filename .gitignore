@@ -417,14 +417,15 @@ FodyWeavers.xsd
 *.msm
 *.msp
 
-# Local scripts (not committed; keep Setup-ExternalTools.ps1 etc. on your machine only)
+# Local experiments / scratch (not committed). Prefer dev/; legacy scripts/ also ignored.
+/dev/
 /scripts/
 
-# external_tools: portable / installers / venv / clones (see README.md)
+# external_tools: portable / installers / venv / clones (see external_tools/.../image_tools/README.md)
 external_tools/external_tools/image_tools/ImageMagick-portable-Q16-HDRI-x64/
 external_tools/external_tools/image_tools/exiftool-13.30_64/
 external_tools/external_tools/image_tools/QPDF/
 external_tools/external_tools/image_tools/RealEsrgan/RealEsrgan_Repo/
 external_tools/external_tools/image_tools/yomitoku/
 
-# Committed by default: pdfcpu/, TesseractOCR_Data/, external_tools/.../image_tools/README.md
+# Committed: setup/, pdfcpu/, TesseractOCR_Data/, external_tools/.../image_tools/README.md, root README.md

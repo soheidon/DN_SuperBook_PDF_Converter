@@ -19,31 +19,28 @@ git clone --recursive <このリポジトリの URL>
 
 パスにスペースや全角を含めないことを推奨します。
 
-ルートの **`scripts/`** は **`.gitignore` 済みで Git に含みません**。検証用 PowerShell や個人用の取得スクリプトは手元の作業コピーにだけ置いてください（クローン直後はフォルダが無くても問題ありません）。
+---
 
-## 外部ツール方針（Git に含める / 含めない）
+### 外部ツールの配置先・入手手順（最重要）
 
-| 種別 | 内容 |
-|------|------|
-| **リポジトリに含める（候補）** | `pdfcpu.exe`、`TesseractOCR_Data`（`eng.traineddata` / `jpn.traineddata` 等）、本 README、`external_tools/.../image_tools/README.md` |
-| **同梱しない（.gitignore）** | `scripts/`、ImageMagick portable、ExifTool、QPDF、Ghostscript バイナリ、Real-ESRGAN クローン・weights・venv、YomiToku venv、一般的なポータブル一式・学習済みモデル |
+**すべてのパス表・自動取得スクリプトの使い方・手動手順の詳細は、次の 1 本にまとめています。**
 
-配置先の一覧は **`external_tools/external_tools/image_tools/README.md`** を参照してください。
+**[external_tools/external_tools/image_tools/README.md](external_tools/external_tools/image_tools/README.md)**
 
-### 外部ツールの入手（手動）
+---
 
-各配布元のライセンスに従って入手し、次のパスに配置します。
+## 外部ツールの入手（手動の概要）
 
-- **Ghostscript**: [公式](https://www.ghostscript.com/releases/gsdnld.html)から Windows x64 をインストールし、`gsdll64.dll` / `gswin64c.exe` 等を `external_tools\external_tools\image_tools\ImageMagick-portable-Q16-HDRI-x64\` にコピー（アプリは ImageMagick と同じフォルダの `gswin64c.exe` を参照します）。
+自動化は **`setup/image_tools/Setup-ExternalTools.ps1`**（リポジトリ同梱）を使えます。手で置く場合の要点だけ以下に示します。細部は上記 **image_tools/README.md** を参照してください。
+
+- **Ghostscript**: [公式](https://www.ghostscript.com/releases/gsdnld.html)から Windows x64 をインストールし、`gsdll64.dll` / `gswin64c.exe` 等を `external_tools\external_tools\image_tools\ImageMagick-portable-Q16-HDRI-x64\` にコピー。
 - **ImageMagick**: [バイナリ一覧](https://imagemagick.org/archive/binaries/)から **portable Q16-HDRI x64** の ZIP を展開し、フォルダ名を `ImageMagick-portable-Q16-HDRI-x64` にして `image_tools` 直下へ。
-- **ExifTool**: [ExifTool](https://exiftool.org/) の Windows 版を `exiftool-13.30_64\`（`exiftool.exe` と `exiftool_files`）として配置。
-- **QPDF**: [qpdf releases](https://github.com/qpdf/qpdf/releases) の Windows msvc64 ZIP を展開し、トップフォルダを `QPDF` にリネームして `image_tools` 直下へ（`QPDF\bin\qpdf.exe` になること）。
-- **pdfcpu**: [pdfcpu releases](https://github.com/pdfcpu/pdfcpu/releases) から `pdfcpu.exe` を `pdfcpu\` に配置（リポジトリ同梱を推奨）。
-- **Tesseract データ**: [tessdata_best](https://github.com/tesseract-ocr/tessdata_best) から `eng.traineddata` と `jpn.traineddata` を `TesseractOCR_Data\` に配置。
-- **Real-ESRGAN**: `RealEsrgan\RealEsrgan_Repo\` に Python venv を作成し、[Real-ESRGAN](https://github.com/xinntao/Real-ESRGAN) を所定のコミットでクローン、`weights\RealESRGAN_x4plus.pth` を配置、`pip install -r requirements.txt`。環境によっては `basicsr` の `degradations.py` で `rgb_to_grayscale` の import を `torchvision.transforms.functional` に合わせる修正が必要です。
-- **YomiToku（OCR）**: `yomitoku\` に venv を作成し、PyTorch に続けて `pip install yomitoku` 等、公式 README に従ってください。**ライセンス**は [YomiToku README](https://github.com/kotaro-kinoshita/yomitoku) を確認してください。
+- **ExifTool / QPDF / pdfcpu / Tesseract tessdata**: 各公式・GitHub から取得し、**image_tools/README.md** のディレクトリ表どおりに配置。
+- **Real-ESRGAN / YomiToku**: venv・クローン・weights・pip。詳細は **image_tools/README.md**。
 
-自動ダウンロード用の PowerShell は **リポジトリには含めない**方針のため、必要なら手元の `scripts\` に独自のスクリプトを置いてください。
+**実験用スクリプト**（Ghostscript の比較実験など）は、混同を避けるためリポジトリルートの **`dev/`** に置いてください（`.gitignore` 済み）。旧来の **`scripts/`** も同様に無視されます。
+
+**セットアップ用（コミット対象）**: **`setup/README.md`** を参照（`Run-ConvertPdf.ps1` など）。
 
 ## ビルド
 
@@ -57,7 +54,7 @@ dotnet build DN_SuperBook_PDF_Converter_VS2026.sln -c Release
 
 - **対話**: `SuperBookToolsApp.exe` を起動し、`ConvertPdf` や `ConvertPdf --help`。
 - **ワンショット**: `SuperBookToolsApp.exe /cmd "ConvertPdf D:\in /dst:D:\out /ocr:yes"`
-- 手元にラッパーを置く場合の例: `SuperBookToolsApp.exe /cmd "ConvertPdf $($args -join ' ')"` を `.ps1` で呼び出すなど（`scripts/` は Git 対象外）。
+- **ラッパー**: `.\setup\Run-ConvertPdf.ps1 "D:\in" /dst:"D:\out" /ocr:yes`
 
 `srcDir` と `dstDir` は**同一にできません**。
 
