@@ -20,7 +20,7 @@ mono_crash.*
 # Build results
 [Dd]ebug/
 [Dd]ebugPublic/
-[Rr]elease/
+[Rr]elease/.gitignore
 [Rr]eleases/
 x64/
 x86/
@@ -417,5 +417,14 @@ FodyWeavers.xsd
 *.msm
 *.msp
 
-# Local helper scripts and working notes (not committed)
+# Local scripts (not committed; keep Setup-ExternalTools.ps1 etc. on your machine only)
 /scripts/
+
+# external_tools: portable / installers / venv / clones (see README.md)
+external_tools/external_tools/image_tools/ImageMagick-portable-Q16-HDRI-x64/
+external_tools/external_tools/image_tools/exiftool-13.30_64/
+external_tools/external_tools/image_tools/QPDF/
+external_tools/external_tools/image_tools/RealEsrgan/RealEsrgan_Repo/
+external_tools/external_tools/image_tools/yomitoku/
+
+# Committed by default: pdfcpu/, TesseractOCR_Data/, external_tools/.../image_tools/README.md

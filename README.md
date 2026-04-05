@@ -2,19 +2,16 @@
 
 スキャン PDF の画質改善（Real-ESRGAN 等）、傾き・オフセット補正、余白トリミング、論理ページ番号・見開き・縦書き向けメタデータの付与が主な機能です。オプションで [YomiToku](https://github.com/kotaro-kinoshita/yomitoku) による日本語 AI OCR（検索可能 PDF、HTML / Markdown / JSON 等）を実行できます。
 
-本リポジトリは上流プロジェクトを整理・改修するための作業用ツリーです。詳細な背景説明や長い手順書は載せず、開発・実行に必要な情報だけをまとめています。
-
 ## 動作環境
 
 - **OS**: Windows 10 / 11 x64（開発・検証は主に Windows）
 - **開発**: Visual Studio 2022 / 2026、**.NET 6**
-- **Python 3**（Real-ESRGAN / YomiToku 用 venv）
+- **Python 3.10+**（Real-ESRGAN / YomiToku 用 venv。パスが通っていること）
+- **Git**（Real-ESRGAN クローン用）
 - **GPU**: Real-ESRGAN・YomiToku は CUDA 対応 GPU 推奨（CPU でも動くが非常に遅い）
 - **メモリ**: PDF ページ数に応じて数 GB〜が必要になることがあります
 
 ## リポジトリの取得
-
-サブモジュールを含める場合は `--recursive` でクローンしてください。
 
 ```bash
 git clone --recursive <このリポジトリの URL>
@@ -22,38 +19,33 @@ git clone --recursive <このリポジトリの URL>
 
 パスにスペースや全角を含めないことを推奨します。
 
-ルートの **`scripts/`** は `.gitignore` してあり、**Git には含めません**（手元の検証用 PowerShell やメモ用）。クローンだけでは存在しません。
+ルートの **`scripts/`** は **`.gitignore` 済みで Git に含みません**。検証用 PowerShell や個人用の取得スクリプトは手元の作業コピーにだけ置いてください（クローン直後はフォルダが無くても問題ありません）。
 
-## 外部ツールの配置
+## 外部ツール方針（Git に含める / 含めない）
 
-以下を **`external_tools\external_tools\image_tools\`** 配下に配置します（配布元のライセンスに従って各自入手してください）。
+| 種別 | 内容 |
+|------|------|
+| **リポジトリに含める（候補）** | `pdfcpu.exe`、`TesseractOCR_Data`（`eng.traineddata` / `jpn.traineddata` 等）、本 README、`external_tools/.../image_tools/README.md` |
+| **同梱しない（.gitignore）** | `scripts/`、ImageMagick portable、ExifTool、QPDF、Ghostscript バイナリ、Real-ESRGAN クローン・weights・venv、YomiToku venv、一般的なポータブル一式・学習済みモデル |
 
-| ディレクトリ名 | 内容 |
-|----------------|------|
-| `exiftool-13.30_64` | [ExifTool](https://exiftool.org/)（`exiftool.exe` と `exiftool_files`） |
-| `ImageMagick-portable-Q16-HDRI-x64` | [ImageMagick](https://imagemagick.org/) portable Q16-HDRI x64（`magick.exe` 等） |
-| 同上フォルダ内 | Ghostscript x64 の `gsdll64.dll`, `gswin64c.exe` 等（[公式配布](https://www.ghostscript.com/releases/gsdnld.html)から取得しコピー） |
-| `pdfcpu` | [pdfcpu](https://github.com/pdfcpu/pdfcpu/releases)（`pdfcpu.exe`） |
-| `QPDF` | [qpdf](https://github.com/qpdf/qpdf/releases)（`bin\qpdf.exe` を含む構成） |
-| `TesseractOCR_Data` | [tessdata_best](https://github.com/tesseract-ocr/tessdata_best) から `eng.traineddata`, `jpn.traineddata` |
-| `RealEsrgan\RealEsrgan_Repo` | 下記「Real-ESRGAN」の venv とクローン |
-| `yomitoku` | 下記「YomiToku」の venv（OCR を使う場合のみ） |
+配置先の一覧は **`external_tools/external_tools/image_tools/README.md`** を参照してください。
 
-### Real-ESRGAN（概要）
+### 外部ツールの入手（手動）
 
-1. `external_tools\external_tools\image_tools\RealEsrgan\RealEsrgan_Repo\` で Python venv を作成。
-2. PyTorch（CUDA 版など環境に合わせて）をインストール。
-3. [Real-ESRGAN](https://github.com/xinntao/Real-ESRGAN) をクローンし、リポジトリが要求するコミット・`weights\RealESRGAN_x4plus.pth` を配置。
-4. `pip install -r Real-ESRGAN\requirements.txt`
-5. 環境によっては `basicsr` の `degradations.py` で `rgb_to_grayscale` の import を `torchvision.transforms.functional` に合わせる修正が必要です（従来手順どおり）。
+各配布元のライセンスに従って入手し、次のパスに配置します。
 
-### YomiToku（OCR を使う場合）
+- **Ghostscript**: [公式](https://www.ghostscript.com/releases/gsdnld.html)から Windows x64 をインストールし、`gsdll64.dll` / `gswin64c.exe` 等を `external_tools\external_tools\image_tools\ImageMagick-portable-Q16-HDRI-x64\` にコピー（アプリは ImageMagick と同じフォルダの `gswin64c.exe` を参照します）。
+- **ImageMagick**: [バイナリ一覧](https://imagemagick.org/archive/binaries/)から **portable Q16-HDRI x64** の ZIP を展開し、フォルダ名を `ImageMagick-portable-Q16-HDRI-x64` にして `image_tools` 直下へ。
+- **ExifTool**: [ExifTool](https://exiftool.org/) の Windows 版を `exiftool-13.30_64\`（`exiftool.exe` と `exiftool_files`）として配置。
+- **QPDF**: [qpdf releases](https://github.com/qpdf/qpdf/releases) の Windows msvc64 ZIP を展開し、トップフォルダを `QPDF` にリネームして `image_tools` 直下へ（`QPDF\bin\qpdf.exe` になること）。
+- **pdfcpu**: [pdfcpu releases](https://github.com/pdfcpu/pdfcpu/releases) から `pdfcpu.exe` を `pdfcpu\` に配置（リポジトリ同梱を推奨）。
+- **Tesseract データ**: [tessdata_best](https://github.com/tesseract-ocr/tessdata_best) から `eng.traineddata` と `jpn.traineddata` を `TesseractOCR_Data\` に配置。
+- **Real-ESRGAN**: `RealEsrgan\RealEsrgan_Repo\` に Python venv を作成し、[Real-ESRGAN](https://github.com/xinntao/Real-ESRGAN) を所定のコミットでクローン、`weights\RealESRGAN_x4plus.pth` を配置、`pip install -r requirements.txt`。環境によっては `basicsr` の `degradations.py` で `rgb_to_grayscale` の import を `torchvision.transforms.functional` に合わせる修正が必要です。
+- **YomiToku（OCR）**: `yomitoku\` に venv を作成し、PyTorch に続けて `pip install yomitoku` 等、公式 README に従ってください。**ライセンス**は [YomiToku README](https://github.com/kotaro-kinoshita/yomitoku) を確認してください。
 
-`external_tools\external_tools\image_tools\yomitoku\` に venv を作り、PyTorch に続けて例: `pip install "yomitoku==0.10.3"` 等、YomiToku 公式の推奨に従ってください。**ライセンス・商用利用**は [YomiToku README](https://github.com/kotaro-kinoshita/yomitoku) を必ず確認してください。
+自動ダウンロード用の PowerShell は **リポジトリには含めない**方針のため、必要なら手元の `scripts\` に独自のスクリプトを置いてください。
 
 ## ビルド
-
-ソリューション `DN_SuperBook_PDF_Converter_VS2026.sln` を Visual Studio で開き、ビルドします。CLI からは例:
 
 ```bash
 dotnet build DN_SuperBook_PDF_Converter_VS2026.sln -c Release
@@ -63,12 +55,11 @@ dotnet build DN_SuperBook_PDF_Converter_VS2026.sln -c Release
 
 ## 実行
 
-- **対話コンソール**: `SuperBookToolsApp.exe` を起動し、プロンプトで `ConvertPdf` や `ConvertPdf --help`。
-- **コマンドライン一発**（推奨）: ビルド出力の exe を直接指定します。  
-  例: `SuperBookToolsApp.exe /cmd "ConvertPdf D:\in /dst:D:\out /ocr:yes"`
-- 手元に `Run-ConvertPdf.ps1` などを置く場合は **`scripts/`**（Git 対象外）に置いても構いません。
+- **対話**: `SuperBookToolsApp.exe` を起動し、`ConvertPdf` や `ConvertPdf --help`。
+- **ワンショット**: `SuperBookToolsApp.exe /cmd "ConvertPdf D:\in /dst:D:\out /ocr:yes"`
+- 手元にラッパーを置く場合の例: `SuperBookToolsApp.exe /cmd "ConvertPdf $($args -join ' ')"` を `.ps1` で呼び出すなど（`scripts/` は Git 対象外）。
 
-`srcDir` と `dstDir` は**同一にできません**（上書き専用モードは不可）。
+`srcDir` と `dstDir` は**同一にできません**。
 
 ### ConvertPdf の主なオプション
 
@@ -80,12 +71,11 @@ dotnet build DN_SuperBook_PDF_Converter_VS2026.sln -c Release
 | `/ocrPdfGrayscale:yes` | 上記有効時、グレースケール化 |
 | `/ocrPdfJpegQuality:N` | 上記有効時、JPEG 品質 0=既定、1〜100 |
 
-OCR 後 PDF と Ghostscript の組み合わせでは、元 PDF の解像度や画像フィルタによって効き方が変わります。補足メモは手元の `scripts` 等に置くか、`ConvertPdf --help` と実行ログを参照してください。
+補足は `ConvertPdf --help` と実行ログを参照してください。
 
 ## ライセンス・免責
 
-- 本リポジトリで公開されている作者によるアプリケーションソースのライセンスはリポジトリルートの **`LICENSE`**（AGPL v3）に従います。
-- NuGet・サブモジュール・上記の外部実行ファイルは本リポジトリの配布物ではありません。各ソフトのライセンスに従ってください。
-- YomiToku を `/ocr:yes` で利用する場合は、**YomiToku 側の利用条件**（非商用・研究と商用の区別等）を遵守してください。
-- スキャンした著作物の取り扱いは著作権法およびご自身の利用許諾の範囲内に限ってください。本ツールは無保証です。
-
+- アプリケーションソースのライセンスはリポジトリルートの **`LICENSE`**（AGPL v3）に従います。
+- NuGet・サブモジュール・外部ツール本体は各配布元のライセンスに従ってください。
+- YomiToku の利用条件（非商用・研究と商用の区別等）は [YomiToku README](https://github.com/kotaro-kinoshita/yomitoku) を確認してください。
+- スキャンした著作物の取り扱いは著作権法および利用許諾の範囲内に限ってください。本ツールは無保証です。
