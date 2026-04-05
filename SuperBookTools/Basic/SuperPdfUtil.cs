@@ -80,10 +80,24 @@ public class PdfYomitokuOptions
     public bool OutputFigureLetters = true;
     public string Encoding = "utf-8-sig";
     public int TimeoutSecs = 5 * 3600;
-    /// <summary>OCR 埋め込み PDF 生成後、Ghostscript で画像を再サンプルして軽量化する（既定: オフ。CLI から後で有効化予定）。</summary>
+    /// <summary>
+    /// OCR 埋め込み PDF 生成後、Ghostscript（pdfwrite）で再生成して軽量化する（既定: オフ）。
+    /// 実測では主に JPEG 等の再圧縮であり、ピクセル寸法や ppi が変わらない PDF もある（CLI 名は後方互換のため downscale のまま）。
+    /// </summary>
     public bool DownscaleOcrPdfAfterRecognition = false;
-    /// <summary><see cref="DownscaleOcrPdfAfterRecognition"/> 有効時の目標 DPI（画像解像度）。</summary>
+    /// <summary>
+    /// <see cref="DownscaleOcrPdfAfterRecognition"/> 有効時に Ghostscript の ColorImageResolution 等へ渡す値。
+    /// 公式の downsample 条件上、埋め込みの effective ppi がこれを超えないとピクセル寸法は落ちず再圧縮のみになりやすい（例: 72ppi 表記なら 200 では縮小しない）。
+    /// </summary>
     public int OcrPdfTargetDpi = 200;
+    /// <summary>
+    /// <see cref="DownscaleOcrPdfAfterRecognition"/> 有効時、Ghostscript で RGB 等をグレースケール化する（1bit 二値化は行わない）。
+    /// </summary>
+    public bool OcrPdfGrayscale = false;
+    /// <summary>
+    /// <see cref="DownscaleOcrPdfAfterRecognition"/> 有効時、JPEG（DCT）の QFactor を 1.0 基準で指定（1〜100 = 品質％、数値が大きいほど高画質でファイルは大きくなりやすい）。0 は Ghostscript 既定。
+    /// </summary>
+    public int OcrPdfJpegQualityPercent = 0;
 }
 
 public class PdfYomitokuMiniPageInfo
@@ -107,7 +121,7 @@ public class PdfYomitokuLib
         this.YomiTokuPythonBaseDir = yomiTokuPythonBaseDir;
     }
 
-    public async Task PerformOcrDirAsync(string srcPdfDirPath, string dstDirPath, string? ignorePathStr = null, CancellationToken cancel = default)
+    public async Task PerformOcrDirAsync(string srcPdfDirPath, string dstDirPath, string? ignorePathStr = null, bool ghostscriptRecompressOcrPdfAfterOcr = false, int ocrPdfTargetDpi = 200, bool ocrPdfGrayscale = false, int ocrPdfJpegQualityPercent = 0, CancellationToken cancel = default)
     {
         srcPdfDirPath = PP.RemoveLastSeparatorChar(srcPdfDirPath);
         dstDirPath = PP.RemoveLastSeparatorChar(dstDirPath);
@@ -140,10 +154,16 @@ public class PdfYomitokuLib
 
                 o = baseOptions._CloneDeep();
                 o.Format = PdfYomitokuFormats.Pdf;
-
-                // 検証用: OCR後PDF圧縮を一時的に有効化
-                o.DownscaleOcrPdfAfterRecognition = true;
-                o.OcrPdfTargetDpi = 200;
+                o.DownscaleOcrPdfAfterRecognition = ghostscriptRecompressOcrPdfAfterOcr;
+                if (ocrPdfTargetDpi >= 1)
+                {
+                    o.OcrPdfTargetDpi = ocrPdfTargetDpi;
+                }
+                o.OcrPdfGrayscale = ocrPdfGrayscale;
+                if (ocrPdfJpegQualityPercent >= 1 && ocrPdfJpegQualityPercent <= 100)
+                {
+                    o.OcrPdfJpegQualityPercent = ocrPdfJpegQualityPercent;
+                }
 
                 optList.Add(o);
 
@@ -315,11 +335,12 @@ public class PdfYomitokuLib
             string sourcePathForFinalCopy = ocrDstGeneratedPdfPath;
             string? gsCompressedTmpPath = null;
 
+            // Ghostscript 再生成（再圧縮）。Downsample が効かない PDF ではピクセル寸法は据え置きのままストリームだけ縮む場合がある。
             if (options.DownscaleOcrPdfAfterRecognition && options.OcrPdfTargetDpi >= 1)
             {
                 gsCompressedTmpPath = await Lfs.GenerateUniqueTempFilePathAsync("gs_ocr_pdf", ".pdf", cancel: cancel);
                 await SuperBookExternalTools.ImageMagick.CompressPdfWithGhostscriptAsync(
-                    ocrDstGeneratedPdfPath, gsCompressedTmpPath, options.OcrPdfTargetDpi, cancel: cancel);
+                    ocrDstGeneratedPdfPath, gsCompressedTmpPath, options.OcrPdfTargetDpi, options.OcrPdfGrayscale, options.OcrPdfJpegQualityPercent, cancel: cancel);
                 sourcePathForFinalCopy = gsCompressedTmpPath;
             }
 

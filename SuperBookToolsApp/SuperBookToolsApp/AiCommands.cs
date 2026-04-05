@@ -59,8 +59,8 @@ namespace SuperBookTools.App
     {
         [ConsoleCommand(
             "ConvertPdf command",
-            "ConvertPdf [srcDir] [/dst:dstDir] [/ocr:yes|no]",
-            "ConvertPdf command")]
+            "ConvertPdf [srcDir] [/dst:dstDir] [/ocr:yes|no] [/recompressOcrPdf:yes|no] [/downscaleOcrPdf:yes|no] [/ocrPdfTargetDpi:1-1200] [/ocrPdfGrayscale:yes|no] [/ocrPdfJpegQuality:0-100]",
+            "OCR後Ghostscript: /recompressOcrPdf（正式）/downscaleOcrPdf（互換）。/ocrPdfTargetDpi /ocrPdfGrayscale /ocrPdfJpegQuality（0=既定、1-100=JPEG品質%%）は recompress 有効時のみ。README の ConvertPdf を参照。")]
         public static async Task<int> ConvertPdf(ConsoleService c, string cmdName, string str)
         {
             ConsoleParam[] args =
@@ -68,6 +68,11 @@ namespace SuperBookTools.App
                 new ConsoleParam("[srcDir]", ConsoleService.Prompt, "Source directory path: ", ConsoleService.EvalNotEmpty, null),
                 new ConsoleParam("dst", ConsoleService.Prompt, "Destination directory path: ", ConsoleService.EvalNotEmpty, null),
                 new ConsoleParam("ocr", ConsoleService.Prompt, "Perform Japanese High-Quality OCR? (Y/N): ", null, null),
+                new ConsoleParam("downscaleOcrPdf", null, null, null, null),
+                new ConsoleParam("recompressOcrPdf", null, null, null, null),
+                new ConsoleParam("ocrPdfTargetDpi", null, null, null, null),
+                new ConsoleParam("ocrPdfGrayscale", null, null, null, null),
+                new ConsoleParam("ocrPdfJpegQuality", null, null, null, null),
             };
             ConsoleParamValueList vl = c.ParseCommandList(cmdName, str, args);
 
@@ -90,6 +95,22 @@ namespace SuperBookTools.App
             SuperPerformPdfOptions options = new SuperPerformPdfOptions {/* MaxPagesForDebug = 120, SaveDebugPng = true, SkipRealesrgan = true */ };
 
             bool performOcr = vl["ocr"].BoolValue;
+            bool ghostscriptRecompressOcrPdf = vl["downscaleOcrPdf"].BoolValue || vl["recompressOcrPdf"].BoolValue;
+            int ocrPdfTargetDpi = vl.GetInt("ocrPdfTargetDpi");
+            if (ocrPdfTargetDpi < 1)
+            {
+                ocrPdfTargetDpi = 200;
+            }
+            if (ocrPdfTargetDpi > 1200)
+            {
+                throw new CoresException("ocrPdfTargetDpi must be between 1 and 1200.");
+            }
+            bool ocrPdfGrayscale = vl["ocrPdfGrayscale"].BoolValue;
+            int ocrPdfJpegQuality = vl.GetInt("ocrPdfJpegQuality");
+            if (ocrPdfJpegQuality < 0 || ocrPdfJpegQuality > 100)
+            {
+                throw new CoresException("ocrPdfJpegQuality must be 0 (Ghostscript default) or 1-100 (JPEG quality percent, higher = better quality / larger file).");
+            }
 
             if (performOcr)
             {
@@ -146,8 +167,14 @@ namespace SuperBookTools.App
             if (performOcr)
             {
                 Con.WriteLine("Performing Japanese OCR started ...");
+                if (ghostscriptRecompressOcrPdf)
+                {
+                    Con.WriteLine($"Ghostscript after OCR PDF: enabled. TargetDpi={ocrPdfTargetDpi}, Grayscale={ocrPdfGrayscale}, JpegQuality%={(ocrPdfJpegQuality == 0 ? "(default)" : ocrPdfJpegQuality.ToString())}.");
+                    Con.WriteLine("  (/recompressOcrPdf:yes … 任意: /ocrPdfTargetDpi:N /ocrPdfGrayscale:yes /ocrPdfJpegQuality:0-100)");
+                    Con.WriteLine("  注意: README の ConvertPdf 節（OCR 後 Ghostscript・DPI 等）を参照。");
+                }
 
-                await SuperBookExternalTools.YomiToku.PerformOcrDirAsync(dstDir, PP.Combine(dstDir, SuperBookExternalTools.Post_OCR_Dir), SuperBookExternalTools.Post_OCR_Dir);
+                await SuperBookExternalTools.YomiToku.PerformOcrDirAsync(dstDir, PP.Combine(dstDir, SuperBookExternalTools.Post_OCR_Dir), SuperBookExternalTools.Post_OCR_Dir, ghostscriptRecompressOcrPdf, ocrPdfTargetDpi, ocrPdfGrayscale, ocrPdfJpegQuality);
 
                 Con.WriteLine("Performing Japanese OCR completed.");
             }

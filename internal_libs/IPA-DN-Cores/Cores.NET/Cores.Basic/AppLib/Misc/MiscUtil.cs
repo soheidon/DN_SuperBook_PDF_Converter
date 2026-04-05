@@ -505,9 +505,14 @@ public class ImageMagickUtil
     }
 
     /// <summary>
-    /// Ghostscript pdfwrite で画像を目標 DPI 相当に再サンプルし PDF を再生成する（テキストレイヤーは pdfwrite の解釈に依存）。
+    /// Ghostscript pdfwrite で PDF を再生成する。PassThrough を切ると JPEG 等の再エンコード（再圧縮）が起きやすい。
+    /// <paramref name="convertToGrayscale"/> が true のとき <c>-sColorConversionStrategy=Gray</c> で RGB 等をグレースケール化する。
+    /// <paramref name="jpegQualityPercent"/> が 1〜100 のとき DCT（JPEG）の <c>QFactor</c> をその割合（例: 85 → 0.85）で <c>setdistillerparams</c> する。0 のときは Ghostscript 既定。
+    /// Downsample は概ね「画像の effective resolution &gt; ImageResolution × DownsampleThreshold」のときのみ発動する。
+    /// pdfimages で 72ppi と出る画像に対し targetDpi を 100 以上にしても縮小条件を満たさず、再圧縮だけになることがある。
+    /// Downsample*・閾値 1.0 を付与するが、PDF 構造によっては寸法が変わらない場合もある（実測で確認すること）。
     /// </summary>
-    public async Task CompressPdfWithGhostscriptAsync(string srcPdfPath, string dstPdfPath, int targetDpi, CancellationToken cancel = default)
+    public async Task CompressPdfWithGhostscriptAsync(string srcPdfPath, string dstPdfPath, int targetDpi, bool convertToGrayscale = false, int jpegQualityPercent = 0, CancellationToken cancel = default)
     {
         if (Options.Gswin64cPath._IsEmpty())
         {
@@ -519,16 +524,43 @@ public class ImageMagickUtil
             throw new ArgumentOutOfRangeException(nameof(targetDpi));
         }
 
+        if (jpegQualityPercent < 0 || jpegQualityPercent > 100)
+        {
+            throw new ArgumentOutOfRangeException(nameof(jpegQualityPercent), "Use 0 for default, or 1-100 for JPEG QFactor.");
+        }
+
         await Lfs.DeleteFileIfExistsAsync(dstPdfPath, cancel: cancel);
         await Lfs.EnsureCreateDirectoryForFileAsync(dstPdfPath, cancel: cancel);
 
         string dpiStr = targetDpi.ToString(CultureInfo.InvariantCulture);
 
+        // ImageResolution だけではダウンサンプルが有効にならない場合があるため Downsample* を明示する。
+        // Threshold 1.0: effective ppi が target を超える画像だけが縮小対象（72ppi ラベルの画像では target が 72 未満でないと downsample しない）。
+        // JPEG/JPX を通過させると再エンコードが抑止されることがあるため PassThrough を切る。
+        string colorConv = convertToGrayscale ? "-sColorConversionStrategy=Gray " : "";
+        string ioTail;
+        if (jpegQualityPercent >= 1)
+        {
+            double q = jpegQualityPercent / 100.0;
+            string qStr = q.ToString("0.###", CultureInfo.InvariantCulture);
+            string ps = $"<< /ColorImageDict << /QFactor {qStr} >> /GrayImageDict << /QFactor {qStr} >> >> setdistillerparams";
+            ioTail = $"-sOutputFile={dstPdfPath._EnsureQuotation()} -c {ps._EnsureQuotation()} -f {srcPdfPath._EnsureQuotation()}";
+        }
+        else
+        {
+            ioTail = $"-sOutputFile={dstPdfPath._EnsureQuotation()} {srcPdfPath._EnsureQuotation()}";
+        }
+
         string args =
             $"-dNOPAUSE -dBATCH -dSAFER -sDEVICE=pdfwrite -dCompatibilityLevel=1.4 " +
+            colorConv +
+            $"-dPassThroughJPEGImages=false -dPassThroughJPXImages=false " +
+            $"-dDownsampleColorImages=true -dDownsampleGrayImages=true -dDownsampleMonoImages=true " +
             $"-dColorImageResolution={dpiStr} -dGrayImageResolution={dpiStr} -dMonoImageResolution={dpiStr} " +
+            $"-dColorImageDownsampleThreshold=1.0 -dGrayImageDownsampleThreshold=1.0 -dMonoImageDownsampleThreshold=1.0 " +
+            $"-dColorImageDownsampleType=/Bicubic -dGrayImageDownsampleType=/Bicubic -dMonoImageDownsampleType=/Subsample " +
             $"-dDetectDuplicateImages=true -dCompressFonts=true " +
-            $"-sOutputFile={dstPdfPath._EnsureQuotation()} {srcPdfPath._EnsureQuotation()}";
+            ioTail;
 
         await RunGhostscriptAsync(args, cancel: cancel);
     }
