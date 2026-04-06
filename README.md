@@ -1,4 +1,4 @@
-# PDF Converter
+# DIY Book Scanning Toolkit
 
 登大遊氏が開発した [DN_SuperBook_PDF_Converter](https://github.com/dnobori/DN_SuperBook_PDF_Converter) に対して、いくつかの機能を追加した派生版である。
 
@@ -97,6 +97,8 @@ Real-ESRGAN、版面処理、必要に応じた OCR までを一括で実行す�
 | `/ocrPdfJpegQuality:N` | 0 は Ghostscript 既定値、1〜100 は JPEG（DCT）品質の目安。数値が大きいほど高画質になり、ファイルサイズも大きくなりやすい。     |
 
 OCR 済み PDF だけを軽量化したい場合は、`ConvertPdf` の出力フォルダ内の **`Post_OCR_Dir\pdf_ocred\`** など、対象 PDF が並んでいるフォルダを `srcDir` に指定して `RecompressPdf` を実行する。
+
+**ページが 90° 回転してしまう場合:** Ghostscript `pdfwrite` の既定では、テキストの向きからページを自動回転する（`AutoRotatePages`）ことがある。OCR で付いたテキスト層の向きと見開きの見え方がずれると、本文が横倒しになることがある。**本ツールでは Ghostscript 呼び出しに `-dAutoRotatePages=/None` を付け、自動回転を抑止している**（`MiscUtil.CompressPdfWithGhostscriptAsync`）。古いビルドで再現する場合は、ソースを取り込んだうえで再ビルドする。
 
 ---
 

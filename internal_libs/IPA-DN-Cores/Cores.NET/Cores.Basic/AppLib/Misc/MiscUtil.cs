@@ -511,6 +511,7 @@ public class ImageMagickUtil
     /// Downsample は概ね「画像の effective resolution &gt; ImageResolution × DownsampleThreshold」のときのみ発動する。
     /// pdfimages で 72ppi と出る画像に対し targetDpi を 100 以上にしても縮小条件を満たさず、再圧縮だけになることがある。
     /// Downsample*・閾値 1.0 を付与するが、PDF 構造によっては寸法が変わらない場合もある（実測で確認すること）。
+    /// pdfwrite の既定 <c>AutoRotatePages</c> は <c>/PageByPage</c> になりうるため、OCR PDF 等でテキスト層の向きを見て意図せず 90° 回転することがある。<c>-dAutoRotatePages=/None</c> で無効化する。
     /// </summary>
     public async Task CompressPdfWithGhostscriptAsync(string srcPdfPath, string dstPdfPath, int targetDpi, bool convertToGrayscale = false, int jpegQualityPercent = 0, CancellationToken cancel = default)
     {
@@ -553,6 +554,7 @@ public class ImageMagickUtil
 
         string args =
             $"-dNOPAUSE -dBATCH -dSAFER -sDEVICE=pdfwrite -dCompatibilityLevel=1.4 " +
+            $"-dAutoRotatePages=/None " +
             colorConv +
             $"-dPassThroughJPEGImages=false -dPassThroughJPXImages=false " +
             $"-dDownsampleColorImages=true -dDownsampleGrayImages=true -dDownsampleMonoImages=true " +
